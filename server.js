@@ -42,27 +42,27 @@ class GameRoom {
     });
   }
 
-  step() {
-    this.tick++;
-    const inp0 = this.players[0]?.input || 0;
-    const inp1 = this.players[1]?.input || 0;
+step() {
+  this.tick++;
+  const inp0 = this.players[0]?.input || 0;
+  const inp1 = this.players[1]?.input || 0;
 
-    // 간단한 게임 로직 (실제로는 HTML의 stepWorld 로직을 여기에 옮김)
-    // 여기서는 상태만 브로드캐스트
-    const msg = {
-      t: 's',
-      p0: this.packP(this.p[0]),
-      p1: this.packP(this.p[1]),
-      b: [this.ball.x, this.ball.y, this.ball.vx, this.ball.vy, this.ball.power],
-      sc: this.score,
-      st: this.state,
-      sv: this.serveT,
-      sr: this.server,
-      wn: this.winner,
-      i0: inp0
-    };
-    this.broadcast(msg);
-  }
+  // 브로드캐스트 (클라이언트가 게임 계산하도록)
+  const msg = {
+    t: 's',
+    p0: this.packP(this.p[0]),
+    p1: this.packP(this.p[1]),
+    b: [this.ball.x, this.ball.y, this.ball.vx, this.ball.vy, this.ball.power],
+    sc: this.score,
+    st: this.state,
+    sv: this.serveT,
+    sr: this.server,
+    wn: this.winner,
+    i0: inp0,
+    i1: inp1
+  };
+  this.broadcast(msg);
+}
 
   packP(p) {
     return [
@@ -122,9 +122,13 @@ wss.on('connection', (ws) => {
         // 입력
         if (room.players[mySide]) room.players[mySide].input = msg.k;
       } else if (msg.t === 'c' && room) {
-        // 채팅
-        room.broadcast({ t: 'c', from: nick, m: msg.m });
-      }
+  // 채팅 — 자신 제외 다른 사람에게만 전송
+  Object.values(room.players).forEach(p => {
+    if (p.ws !== ws && p.ws.readyState === WebSocket.OPEN) {
+      p.ws.send(JSON.stringify({ t: 'c', from: nick, m: msg.m }));
+    }
+  });
+}
     } catch (e) {
       console.error(e);
     }
