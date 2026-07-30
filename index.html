@@ -164,7 +164,7 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+
 <script>
 (function(){
 'use strict';
@@ -662,73 +662,49 @@ const ALPH='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function randCode(){ let s=''; for(let i=0;i<4;i++) s+=ALPH[Math.floor(Math.random()*ALPH.length)]; return s; }
 function peerReady(){ return typeof window.Peer==='function'; }
 
+const SERVER_URL = localStorage.getItem('serverUrl') || 'https://kkomi-volleyball-server.onrender.com';
+let ws = null;
+
 function hostRoom(){
-  if(!peerReady()){ sys('온라인 모듈을 불러오지 못했어요. 새로고침하거나 2인 모드로 플레이하세요.'); return; }
   cleanNet();
   const code=randCode();
-  net.role='host'; net.code=code; net.tries++;
+  net.role='host'; net.code=code;
   show('scrWait');
   document.getElementById('waitTitle').textContent='상대를 기다립니다';
   document.getElementById('roomCode').textContent=code;
   document.getElementById('waitText').textContent='이 코드를 상대에게 알려주세요.';
-  net.peer=new Peer('kkomivb-'+code,{
-    debug:0,
-    config:{
-      iceServers:[
-        {urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']},
-        {urls:['stun:stun2.l.google.com:19302','stun:stun3.l.google.com:19302']},
-        {urls:['stun:stun4.l.google.com:19302']}
-      ]
-    }
-  });
-  net.peer.on('open',function(){ sys('방을 만들었어요. 코드 '+code); });
-  net.peer.on('connection',function(c){
-    if(net.conn&&net.conn.open){ c.close(); return; }
-    bindConn(c);
-  });
-  net.peer.on('error',function(e){
-    if(e.type==='unavailable-id'&&net.tries<5){ cleanNet(); hostRoom(); return; }
-    netFail(e);
-  });
+  
+  ws = new WebSocket(SERVER_URL.replace('https','wss').replace('http','ws'));
+  ws.onopen = function(){
+    ws.send(JSON.stringify({t:'create', code:code, n:net.nick}));
+    sys('방을 만들었어요. 코드 '+code);
+  };
+  ws.onmessage = function(e){
+    try{ onData(JSON.parse(e.data)); }catch(err){}
+  };
+  ws.onerror = function(){ netFail({type:'connection'}); };
+  ws.onclose = function(){ dropNet(); };
+  net.connected = false;
 }
+
 function joinRoom(code){
-  if(!peerReady()){ sys('온라인 모듈을 불러오지 못했어요. 새로고침하거나 2인 모드로 플레이하세요.'); return; }
   cleanNet();
   net.role='guest'; net.code=code;
   show('scrWait');
   document.getElementById('waitTitle').textContent='연결 중…';
   document.getElementById('roomCode').textContent=code;
   document.getElementById('waitText').textContent='방장에게 연결하고 있어요.';
-  net.peer=new Peer({
-    debug:0,
-    config:{
-      iceServers:[
-        {urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']},
-        {urls:['stun:stun2.l.google.com:19302','stun:stun3.l.google.com:19302']},
-        {urls:['stun:stun4.l.google.com:19302']}
-      ]
-    }
-  });
-  net.peer.on('open',function(){ bindConn(net.peer.connect('kkomivb-'+code,{reliable:true})); });
-  net.peer.on('error',netFail);
-}
-function bindConn(c){
-  net.conn=c;
-  const start=function(){
-    net.connected=true;
-    G.mode='online'; G.mySide=(net.role==='host')?0:1;
-    send({t:'hi',n:net.nick});
-    if(net.role==='host'){ newMatch(); }
-    hideAll();
-    tag('온라인 대전 · '+(G.mySide===0?'왼쪽':'오른쪽')+' 꼬미');
-    document.getElementById('chatState').textContent='연결됨';
-    sys('연결됐어요! 채팅도 사용할 수 있어요.');
-    beep(660,0.09,'triangle',0.06);
+  
+  ws = new WebSocket(SERVER_URL.replace('https','wss').replace('http','ws'));
+  ws.onopen = function(){
+    ws.send(JSON.stringify({t:'join', code:code, n:net.nick}));
   };
-  if(c.open) start(); else c.on('open',start);
-  c.on('data',onData);
-  c.on('close',function(){ if(net.connected) sys('상대가 나갔어요.'); dropNet(); });
-  c.on('error',function(){ sys('연결 오류가 발생했어요.'); dropNet(); });
+  ws.onmessage = function(e){
+    try{ onData(JSON.parse(e.data)); }catch(err){}
+  };
+  ws.onerror = function(){ netFail({type:'connection'}); };
+  ws.onclose = function(){ dropNet(); };
+  net.connected = false;
 }
 function netFail(e){
   const m=(e&&e.type)||'';
@@ -737,8 +713,7 @@ function netFail(e){
   cleanNet(); show('scrOnline');
 }
 function cleanNet(){
-  if(net.conn){ try{net.conn.close();}catch(e){} net.conn=null; }
-  if(net.peer){ try{net.peer.destroy();}catch(e){} net.peer=null; }
+  if(ws){ try{ws.close();}catch(e){} ws=null; }
   net.connected=false;
 }
 function dropNet(){
@@ -746,7 +721,11 @@ function dropNet(){
   document.getElementById('chatState').textContent='오프라인';
   if(G.mode==='online'){ G.mode='menu'; G.state='menu'; tag('대기 중'); show('scrMenu'); }
 }
-function send(o){ if(net.conn&&net.conn.open){ try{net.conn.send(o);}catch(e){} } }
+function send(o){ 
+  if(ws&&ws.readyState===WebSocket.OPEN){
+    try{ws.send(JSON.stringify(o));}catch(e){}
+  }
+}
 
 function packP(p){ return [Math.round(p.x*10)/10,Math.round(p.y*10)/10,p.vx,p.vy,p.onGround?1:0,p.pose,p.poseT,Math.round(p.spin*100)/100]; }
 function applyP(p,a,soft){
@@ -757,6 +736,18 @@ function applyP(p,a,soft){
 }
 function onData(d){
   if(!d||!d.t) return;
+  if(d.t==='start'){
+    net.connected=true;
+    G.mode='online'; G.mySide=(net.role==='host')?0:1;
+    if(net.role==='host'){ newMatch(); }
+    hideAll();
+    tag('온라인 대전 · '+(G.mySide===0?'왼쪽':'오른쪽')+' 꼬미');
+    document.getElementById('chatState').textContent='연결됨';
+    sys('연결됐어요! 채팅도 사용할 수 있어요.');
+    beep(660,0.09,'triangle',0.06);
+    return;
+  }
+  if(d.t==='err'){ sys(d.m||'오류가 발생했어요.'); cleanNet(); show('scrOnline'); return; }
   if(d.t==='i'){ net.lastIn=d.k|0; return; }
   if(d.t==='s'){
     applyP(G.p[0],d.p0,G.mySide===0);
@@ -771,8 +762,9 @@ function onData(d){
     net.lastIn=d.i0|0;
     return;
   }
-  if(d.t==='c'){ addMsg(net.oppNick,d.m,false); return; }
+  if(d.t==='c'){ addMsg(d.from||'상대',d.m,false); return; }
   if(d.t==='hi'){ net.oppNick=(d.n||'상대').slice(0,10); sys(net.oppNick+' 님이 입장했어요.'); return; }
+  if(d.t==='bye'){ sys(d.m||'상대가 나갔어요.'); dropNet(); return; }
   if(d.t==='rs'){ if(net.role==='host'){ newMatch(); hideAll(); } return; }
   if(d.t==='p'){ send({t:'q',ts:d.ts}); return; }
   if(d.t==='q'){ net.ping=Date.now()-d.ts; document.getElementById('pingTag').textContent='지연 '+net.ping+'ms'; return; }
