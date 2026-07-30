@@ -11,7 +11,6 @@ app.use(express.static(path.join(__dirname)));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const rooms = {};
-const WINPT = 15;
 
 class GameRoom {
   constructor(code) {
@@ -51,24 +50,15 @@ class GameRoom {
     });
   }
 
-step() {
-  this.tick++;
-  if (this.state === 'waiting' || Object.keys(this.players).length < 2) return;
+  step() {
+    this.tick++;
+    if (this.state === 'waiting' || Object.keys(this.players).length < 2) return;
 
-  // serve 상태에서 카운트다운
-  if (this.state === 'serve') {
-    this.serveT--;
-    if (this.serveT <= 0) {
-      this.state = 'play';
-      this.serveT = 70;
-    }
-  }
-
-  const msg = {
-    t: 's',
-    p0: [this.p[0].x, this.p[0].y, this.p[0].vx, this.p[0].vy, this.p[0].onGround ? 1 : 0, this.p[0].pose, this.p[0].poseT, this.p[0].spin],
-    p1: [this.p[1].x, this.p[1].y, this.p[1].vx, this.p[1].vy, this.p[1].onGround ? 1 : 0, this.p[1].pose, this.p[1].poseT, this.p[1].spin],
-    b: [this.ball.x, this.ball.y, this.ball.vx, this.ball.vy, this.ball.power],
+    const msg = {
+      t: 's',
+      p0: [this.p[0].x, this.p[0].y, this.p[0].vx, this.p[0].vy, this.p[0].onGround ? 1 : 0, this.p[0].pose, this.p[0].poseT, this.p[0].spin],
+      p1: [this.p[1].x, this.p[1].y, this.p[1].vx, this.p[1].vy, this.p[1].onGround ? 1 : 0, this.p[1].pose, this.p[1].poseT, this.p[1].spin],
+      b: [this.ball.x, this.ball.y, this.ball.vx, this.ball.vy, this.ball.power],
       sc: this.score,
       st: this.state,
       sv: this.serveT,
@@ -97,7 +87,7 @@ wss.on('connection', (ws) => {
         nick = (msg.n || '꼬미집사').slice(0, 10);
 
         if (room.addPlayer(ws, 0, nick)) {
-          room.state = 'serve';
+          room.state = 'play';
           room.broadcast({ t: 'start', code });
         } else {
           ws.send(JSON.stringify({ t: 'wait', code }));
@@ -114,7 +104,7 @@ wss.on('connection', (ws) => {
         nick = (msg.n || '꼬미집사').slice(0, 10);
 
         if (room.addPlayer(ws, 1, nick)) {
-          room.state = 'serve';
+          room.state = 'play';
           room.broadcast({ t: 'start', code });
         } else {
           ws.send(JSON.stringify({ t: 'err', m: '이미 2명이 참가했어요.' }));
@@ -124,7 +114,6 @@ wss.on('connection', (ws) => {
         if (room.players[mySide]) room.players[mySide].input = msg.k;
       } 
       else if (msg.t === 'c' && room) {
-        // 채팅 — 상대방에게만 전송 (중복 방지)
         room.broadcastExcept(ws, { t: 'c', from: nick, m: msg.m });
       }
     } catch (e) {
@@ -147,7 +136,6 @@ wss.on('connection', (ws) => {
   ws.on('error', (err) => console.error('WebSocket error:', err));
 });
 
-// 게임 루프
 setInterval(() => {
   Object.values(rooms).forEach(room => room.step());
 }, 1000 / 60);
