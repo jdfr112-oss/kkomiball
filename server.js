@@ -7,9 +7,8 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// 정적 파일 (HTML)
 app.use(express.static(path.join(__dirname)));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'kkomi-volleyball-online.html')));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 const rooms = {};
 const WINPT = 15;
@@ -18,9 +17,9 @@ class GameRoom {
   constructor(code) {
     this.code = code;
     this.players = {};
-    this.state = 'waiting'; // waiting | play | point | over
+    this.state = 'waiting';
     this.score = [0, 0];
-    this.ball = { x: 108, y: 42, vx: 0, vy: 0, power: 0 };
+    this.ball = { x: 216, y: 40, vx: 0, vy: 0, power: 0 };
     this.p = [
       { x: 108, y: 250, vx: 0, vy: 0, onGround: true, pose: 'stand', poseT: 0, spin: 0 },
       { x: 324, y: 250, vx: 0, vy: 0, onGround: true, pose: 'stand', poseT: 0, spin: 0 }
@@ -32,49 +31,43 @@ class GameRoom {
   }
 
   addPlayer(ws, side, nick) {
-    this.players[side] = { ws, nick, input: 0, lastSeen: Date.now() };
+    this.players[side] = { ws, nick, input: 0 };
     return Object.keys(this.players).length === 2;
   }
 
   broadcast(msg) {
     Object.values(this.players).forEach(p => {
-      if (p.ws.readyState === WebSocket.OPEN) p.ws.send(JSON.stringify(msg));
+      if (p.ws.readyState === WebSocket.OPEN) {
+        p.ws.send(JSON.stringify(msg));
+      }
+    });
+  }
+
+  broadcastExcept(ws, msg) {
+    Object.values(this.players).forEach(p => {
+      if (p.ws !== ws && p.ws.readyState === WebSocket.OPEN) {
+        p.ws.send(JSON.stringify(msg));
+      }
     });
   }
 
   step() {
     this.tick++;
-    const inp0 = this.players[0]?.input || 0;
-    const inp1 = this.players[1]?.input || 0;
+    if (this.state === 'waiting' || Object.keys(this.players).length < 2) return;
 
-    // 간단한 게임 로직 (실제로는 HTML의 stepWorld 로직을 여기에 옮김)
-    // 여기서는 상태만 브로드캐스트
     const msg = {
       t: 's',
-      p0: this.packP(this.p[0]),
-      p1: this.packP(this.p[1]),
-      b: [this.ball.x, this.ball.y, this.ball.vx, this.ball.vy, this.ball.power],
+      p0: this.p[0],
+      p1: this.p[1],
+      b: this.ball,
       sc: this.score,
       st: this.state,
       sv: this.serveT,
       sr: this.server,
       wn: this.winner,
-      i0: inp0
+      i0: Object.values(this.players)[0]?.input || 0
     };
     this.broadcast(msg);
-  }
-
-  packP(p) {
-    return [
-      Math.round(p.x * 10) / 10,
-      Math.round(p.y * 10) / 10,
-      p.vx,
-      p.vy,
-      p.onGround ? 1 : 0,
-      p.pose,
-      p.poseT,
-      Math.round(p.spin * 100) / 100
-    ];
   }
 }
 
@@ -88,7 +81,6 @@ wss.on('connection', (ws) => {
       const msg = JSON.parse(data);
 
       if (msg.t === 'create') {
-        // 방 생성
         const code = msg.code || Math.random().toString(36).slice(2, 6).toUpperCase();
         if (!rooms[code]) rooms[code] = new GameRoom(code);
         room = rooms[code];
@@ -96,13 +88,13 @@ wss.on('connection', (ws) => {
         nick = (msg.n || '꼬미집사').slice(0, 10);
 
         if (room.addPlayer(ws, 0, nick)) {
-          room.state = 'play';
+          room.state = 'serve';
           room.broadcast({ t: 'start', code });
         } else {
           ws.send(JSON.stringify({ t: 'wait', code }));
         }
-      } else if (msg.t === 'join') {
-        // 방 참가
+      } 
+      else if (msg.t === 'join') {
         const code = msg.code;
         if (!rooms[code]) {
           ws.send(JSON.stringify({ t: 'err', m: '방을 찾을 수 없어요.' }));
@@ -113,20 +105,21 @@ wss.on('connection', (ws) => {
         nick = (msg.n || '꼬미집사').slice(0, 10);
 
         if (room.addPlayer(ws, 1, nick)) {
-          room.state = 'play';
+          room.state = 'serve';
           room.broadcast({ t: 'start', code });
         } else {
           ws.send(JSON.stringify({ t: 'err', m: '이미 2명이 참가했어요.' }));
         }
-      } else if (msg.t === 'i' && room) {
-        // 입력
+      } 
+      else if (msg.t === 'i' && room) {
         if (room.players[mySide]) room.players[mySide].input = msg.k;
-      } else if (msg.t === 'c' && room) {
-        // 채팅
-        room.broadcast({ t: 'c', from: nick, m: msg.m });
+      } 
+      else if (msg.t === 'c' && room) {
+        // 채팅 — 상대방에게만 전송 (중복 방지)
+        room.broadcastExcept(ws, { t: 'c', from: nick, m: msg.m });
       }
     } catch (e) {
-      console.error(e);
+      console.error('Message error:', e);
     }
   });
 
@@ -134,20 +127,23 @@ wss.on('connection', (ws) => {
     if (room) {
       delete room.players[mySide];
       if (Object.keys(room.players).length === 0) {
-        delete rooms[Object.keys(rooms).find(k => rooms[k] === room)];
+        const code = Object.keys(rooms).find(k => rooms[k] === room);
+        if (code) delete rooms[code];
       } else {
         room.broadcast({ t: 'bye', m: '상대가 나갔어요.' });
       }
     }
   });
+
+  ws.on('error', (err) => console.error('WebSocket error:', err));
 });
 
-// 게임 루프 (모든 방에 대해 60fps)
+// 게임 루프
 setInterval(() => {
-  Object.values(rooms).forEach(room => {
-    if (room.state !== 'waiting') room.step();
-  });
+  Object.values(rooms).forEach(room => room.step());
 }, 1000 / 60);
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`서버 시작: http://localhost:${PORT}`));
+server.listen(PORT, () => {
+  console.log(`🎮 꼬미배구 서버 시작: http://localhost:${PORT}`);
+});
