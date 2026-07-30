@@ -55,6 +55,15 @@ step() {
   this.tick++;
   if (this.state === 'waiting' || Object.keys(this.players).length < 2) return;
 
+  // serve 상태에서 카운트다운
+  if (this.state === 'serve') {
+    this.serveT--;
+    if (this.serveT <= 0) {
+      this.state = 'play';
+      this.serveT = 70;
+    }
+  }
+
   const msg = {
     t: 's',
     p0: [this.p[0].x, this.p[0].y, this.p[0].vx, this.p[0].vy, this.p[0].onGround ? 1 : 0, this.p[0].pose, this.p[0].poseT, this.p[0].spin],
