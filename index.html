@@ -662,7 +662,7 @@ const ALPH='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function randCode(){ let s=''; for(let i=0;i<4;i++) s+=ALPH[Math.floor(Math.random()*ALPH.length)]; return s; }
 function peerReady(){ return typeof window.Peer==='function'; }
 
-const SERVER_URL = localStorage.getItem('serverUrl') || 'https://kkomi-volleyball-server.onrender.com';
+const SERVER_URL = 'https://kkomiball.onrender.com';
 let ws = null;
 
 function hostRoom(){
