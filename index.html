@@ -572,7 +572,7 @@ function predictAt(ty){
 }
 function aiInput(){
   const p=G.p[1], b=G.ball;
-  const rate=[10,5,3][G.diff], err=[24,11,4][G.diff], sprob=[0,0.4,0.8][G.diff];
+  const rate=[10,5,3][G.diff], err=[24,11,4][G.diff], sprob=[0.15,0.4,0.8][G.diff];
   const mine=(b.x>NET_X-12)||b.vx>0.2;
   if(--ai.timer<=0){
     ai.timer=rate;
@@ -671,7 +671,16 @@ function hostRoom(){
   document.getElementById('waitTitle').textContent='상대를 기다립니다';
   document.getElementById('roomCode').textContent=code;
   document.getElementById('waitText').textContent='이 코드를 상대에게 알려주세요.';
-  net.peer=new Peer('kkomivb-'+code,{debug:0});
+  net.peer=new Peer('kkomivb-'+code,{
+    debug:0,
+    config:{
+      iceServers:[
+        {urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']},
+        {urls:['stun:stun2.l.google.com:19302','stun:stun3.l.google.com:19302']},
+        {urls:['stun:stun4.l.google.com:19302']}
+      ]
+    }
+  });
   net.peer.on('open',function(){ sys('방을 만들었어요. 코드 '+code); });
   net.peer.on('connection',function(c){
     if(net.conn&&net.conn.open){ c.close(); return; }
@@ -690,7 +699,16 @@ function joinRoom(code){
   document.getElementById('waitTitle').textContent='연결 중…';
   document.getElementById('roomCode').textContent=code;
   document.getElementById('waitText').textContent='방장에게 연결하고 있어요.';
-  net.peer=new Peer({debug:0});
+  net.peer=new Peer({
+    debug:0,
+    config:{
+      iceServers:[
+        {urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']},
+        {urls:['stun:stun2.l.google.com:19302','stun:stun3.l.google.com:19302']},
+        {urls:['stun:stun4.l.google.com:19302']}
+      ]
+    }
+  });
   net.peer.on('open',function(){ bindConn(net.peer.connect('kkomivb-'+code,{reliable:true})); });
   net.peer.on('error',netFail);
 }
@@ -746,12 +764,11 @@ function onData(d){
     const b=G.ball;
     b.x=d.b[0]; b.y=d.b[1]; b.vx=d.b[2]; b.vy=d.b[3]; b.power=d.b[4];
     G.score=d.sc; G.serveT=d.sv; G.server=d.sr;
-    if(G.state!==d.st){
-      G.state=d.st;
-      if(d.st==='over'){ G.winner=d.wn; onGameOver(); }
-      else hideAll();
-    }
-    G.winner=d.wn; net.lastIn=d.i0|0;
+    G.state=d.st; G.winner=d.wn;
+    if(d.st==='over'){
+      if(document.getElementById('scrOver').classList.contains('hide')) onGameOver();
+    }else if(!document.getElementById('scrOver').classList.contains('hide')) hideAll();
+    net.lastIn=d.i0|0;
     return;
   }
   if(d.t==='c'){ addMsg(net.oppNick,d.m,false); return; }
