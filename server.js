@@ -88,7 +88,7 @@ wss.on('connection', (ws) => {
         nick = (msg.n || '꼬미집사').slice(0, 10);
 
         if (room.addPlayer(ws, 0, nick)) {
-          room.state = 'play';
+          room.state = 'serve';
           room.broadcast({ t: 'start', code });
         } else {
           ws.send(JSON.stringify({ t: 'wait', code }));
@@ -105,7 +105,7 @@ wss.on('connection', (ws) => {
         nick = (msg.n || '꼬미집사').slice(0, 10);
 
         if (room.addPlayer(ws, 1, nick)) {
-          room.state = 'play';
+          room.state = 'serve';
           room.broadcast({ t: 'start', code });
         } else {
           ws.send(JSON.stringify({ t: 'err', m: '이미 2명이 참가했어요.' }));
