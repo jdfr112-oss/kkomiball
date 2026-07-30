@@ -738,8 +738,10 @@ function onData(d){
   if(!d||!d.t) return;
   if(d.t==='start'){
     net.connected=true;
-    G.mode='online'; G.mySide=(net.role==='host')?0:1;
-    if(net.role==='host'){ newMatch(); }
+    G.mySide=(typeof d.side==='number')?d.side:((net.role==='host')?0:1);
+    G.mode='online';
+    if(d.oppNick) net.oppNick=d.oppNick;
+    newMatch();
     hideAll();
     tag('온라인 대전 · '+(G.mySide===0?'왼쪽':'오른쪽')+' 꼬미');
     document.getElementById('chatState').textContent='연결됨';
