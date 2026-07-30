@@ -1,146 +1,905 @@
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const path = require('path');
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>꼬미배구 온라인</title>
+<style>
+  :root{
+    --ink:#131f36; --panel:#1d2d4c; --panel2:#27395c;
+    --cream:#f4ead8; --pink:#e58fa0; --sky:#58b6e8; --red:#d8202a;
+    --line:#0a1220;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:
+      repeating-linear-gradient(0deg,rgba(255,255,255,.03) 0 2px,transparent 2px 4px),
+      radial-gradient(120% 90% at 50% 0%,#263a61 0%,var(--ink) 70%);
+    color:var(--cream);
+    font-family:"Apple SD Gothic Neo","Malgun Gothic","Nanum Gothic",system-ui,sans-serif;
+    display:flex;align-items:flex-start;justify-content:center;padding:18px 14px 40px;
+  }
+  .wrap{display:flex;gap:14px;align-items:stretch;flex-wrap:wrap;justify-content:center;width:100%;max-width:1080px}
+  .col-game{flex:1 1 640px;max-width:760px;min-width:320px}
+  .col-chat{flex:0 1 280px;min-width:250px;display:flex;flex-direction:column}
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+  .title{display:flex;align-items:baseline;gap:10px;margin:0 0 10px}
+  .title b{font-size:26px;letter-spacing:-.5px}
+  .title span{font-size:12px;color:var(--pink);letter-spacing:1px}
 
-app.use(express.static(path.join(__dirname)));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+  .panel{background:var(--panel);border:3px solid var(--line);box-shadow:6px 6px 0 rgba(0,0,0,.45)}
 
-const rooms = {};
+  .stage{position:relative;background:#000;border:3px solid var(--line);box-shadow:6px 6px 0 rgba(0,0,0,.45);line-height:0}
+  canvas{width:100%;height:auto;display:block;image-rendering:pixelated}
 
-class GameRoom {
-  constructor(code) {
-    this.code = code;
-    this.players = {};
-    this.state = 'waiting';
-    this.score = [0, 0];
-    this.ball = { x: 216, y: 40, vx: 0, vy: 0, power: 0 };
-    this.p = [
-      { x: 108, y: 250, vx: 0, vy: 0, onGround: true, pose: 'stand', poseT: 0, spin: 0 },
-      { x: 324, y: 250, vx: 0, vy: 0, onGround: true, pose: 'stand', poseT: 0, spin: 0 }
-    ];
-    this.server = 0;
-    this.serveT = 70;
-    this.tick = 0;
-    this.winner = -1;
+  .scr{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+       background:rgba(9,14,26,.82);text-align:center;padding:18px;line-height:1.5}
+  .scr.hide{display:none}
+  .scr h2{margin:0;font-size:20px;letter-spacing:-.5px}
+  .scr p{margin:0;font-size:13px;color:#c9d4e8;max-width:34ch}
+  .btn{
+    appearance:none;cursor:pointer;font:inherit;font-size:14px;font-weight:700;
+    padding:10px 18px;min-width:190px;color:var(--ink);background:var(--cream);
+    border:3px solid var(--line);box-shadow:4px 4px 0 rgba(0,0,0,.5);transition:transform .06s;
+  }
+  .btn:hover{background:#fff}
+  .btn:active{transform:translate(3px,3px);box-shadow:1px 1px 0 rgba(0,0,0,.5)}
+  .btn.pink{background:var(--pink);color:#2a1218}
+  .btn.ghost{background:transparent;color:var(--cream);box-shadow:none;min-width:0;padding:6px 12px;font-size:12px}
+  .btn:focus-visible{outline:3px solid var(--sky);outline-offset:2px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center}
+  input[type=text]{
+    font:inherit;font-size:14px;padding:9px 10px;background:#0e1729;color:var(--cream);
+    border:3px solid var(--line);width:150px
+  }
+  input[type=text]:focus{outline:none;border-color:var(--sky)}
+  .code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:30px;letter-spacing:6px;color:var(--pink)}
+
+  .bar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;margin-top:10px;font-size:12px;color:#b9c6de}
+  .bar .tag{background:var(--panel2);border:2px solid var(--line);padding:3px 8px}
+  .keys{margin-top:8px;padding:10px 12px;font-size:12px;color:#b9c6de;line-height:1.7}
+  .keys b{color:var(--cream)}
+  kbd{display:inline-block;background:var(--panel2);border:2px solid var(--line);border-bottom-width:3px;
+      padding:0 5px;font-family:inherit;font-size:11px;color:var(--cream)}
+
+  /* chat */
+  .chat{display:flex;flex-direction:column;height:100%;min-height:380px}
+  .chat-h{padding:8px 10px;border-bottom:3px solid var(--line);font-size:13px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+  .chat-h em{font-style:normal;font-size:11px;color:var(--pink)}
+  .log{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:7px;font-size:13px;line-height:1.45;max-height:52vh}
+  .msg{background:var(--panel2);border-left:3px solid var(--sky);padding:5px 8px;word-break:break-word}
+  .msg.me{border-left-color:var(--pink)}
+  .msg .who{display:block;font-size:11px;color:#9fb2d1;margin-bottom:1px}
+  .msg.sys{background:transparent;border-left-color:#6f7f9c;color:#9fb2d1;font-size:12px;padding:2px 8px}
+  .chat-f{display:flex;border-top:3px solid var(--line)}
+  .chat-f input{flex:1;width:auto;border:0;background:#0e1729}
+  .chat-f button{border:0;border-left:3px solid var(--line);background:var(--pink);color:#2a1218;font:inherit;font-weight:700;padding:0 12px;cursor:pointer}
+
+  /* floating chat bubbles over canvas */
+  .bubbles{position:absolute;left:8px;bottom:8px;right:8px;display:flex;flex-direction:column;gap:4px;pointer-events:none}
+  .bub{align-self:flex-start;max-width:70%;background:rgba(10,16,30,.8);border-left:3px solid var(--pink);
+       font-size:12px;padding:3px 7px;color:#fff;animation:pop .18s ease-out}
+  @keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+
+  /* touch pad */
+  .pad{display:none;gap:8px;margin-top:10px;justify-content:center;flex-wrap:wrap}
+  .pad button{width:76px;height:56px;font:inherit;font-size:13px;font-weight:700;background:var(--panel2);
+    color:var(--cream);border:3px solid var(--line);box-shadow:3px 3px 0 rgba(0,0,0,.5);touch-action:none;user-select:none}
+  body.touch .pad{display:flex}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="col-game">
+    <h1 class="title"><b>꼬미배구</b><span>ONLINE</span></h1>
+
+    <div class="stage" id="stage">
+      <canvas id="cv" width="864" height="608"></canvas>
+      <div class="bubbles" id="bubbles"></div>
+
+      <div class="scr" id="scrMenu">
+        <h2>꼬미배구 온라인</h2>
+        <p>먼저 15점을 내면 승리. 곱슬털 꼬미가 토스하고 스파이크합니다.</p>
+        <button class="btn pink" data-go="ai">혼자 연습 (컴퓨터와)</button>
+        <button class="btn" data-go="local">한 키보드로 2인</button>
+        <button class="btn" data-go="online">온라인 대전</button>
+        <div class="row"><button class="btn ghost" id="diffBtn">난이도: 보통</button><button class="btn ghost" id="muteBtn">소리 켜짐</button></div>
+      </div>
+
+      <div class="scr hide" id="scrOnline">
+        <h2>온라인 대전</h2>
+        <p>방을 만들어 코드를 알려주거나, 받은 코드로 참가하세요. 연결은 두 브라우저를 직접 잇는 P2P입니다.</p>
+        <div class="row"><input type="text" id="nick" maxlength="10" value="꼬미집사" aria-label="닉네임"><span style="font-size:12px;color:#9fb2d1">닉네임</span></div>
+        <button class="btn pink" id="btnHost">방 만들기</button>
+        <div class="row">
+          <input type="text" id="joinCode" maxlength="4" placeholder="코드 4자리" aria-label="방 코드">
+          <button class="btn" style="min-width:110px" id="btnJoin">참가</button>
+        </div>
+        <button class="btn ghost" data-go="menu">뒤로</button>
+      </div>
+
+      <div class="scr hide" id="scrWait">
+        <h2 id="waitTitle">상대를 기다립니다</h2>
+        <div class="code" id="roomCode">----</div>
+        <p id="waitText">이 코드를 상대에게 알려주세요.</p>
+        <div class="row"><button class="btn" id="btnCopy" style="min-width:120px">코드 복사</button><button class="btn ghost" id="btnCancel">취소</button></div>
+      </div>
+
+      <div class="scr hide" id="scrOver">
+        <h2 id="overTitle">승리!</h2>
+        <p id="overText"></p>
+        <button class="btn pink" id="btnAgain">다시 하기</button>
+        <button class="btn ghost" id="btnQuit">메뉴로</button>
+      </div>
+    </div>
+
+    <div class="panel bar">
+      <span><span class="tag" id="modeTag">대기 중</span></span>
+      <span id="pingTag"></span>
+      <span><button class="btn ghost" id="btnMenu">메뉴</button></span>
+    </div>
+
+    <div class="pad" id="pad">
+      <button data-k="left">◀</button><button data-k="up">점프</button><button data-k="right">▶</button><button data-k="pow">스파이크</button>
+    </div>
+
+    <div class="panel keys">
+      <b>왼쪽 꼬미</b> <kbd>A</kbd><kbd>D</kbd> 이동 · <kbd>W</kbd> 점프 · <kbd>F</kbd> 파워<br>
+      <b>오른쪽 꼬미</b> <kbd>←</kbd><kbd>→</kbd> 이동 · <kbd>↑</kbd> 점프 · <kbd>Enter</kbd> 파워<br>
+      공중에서 파워 = <b>스파이크</b>(앞발 쭉 뻗기) · 땅에서 파워 = <b>구르기 강타</b> · 그냥 받으면 <b>토스</b>
+    </div>
+  </div>
+
+  <div class="col-chat">
+    <div class="panel chat">
+      <div class="chat-h"><span>채팅</span><em id="chatState">오프라인</em></div>
+      <div class="log" id="log"></div>
+      <div class="chat-f">
+        <input type="text" id="chatIn" maxlength="120" placeholder="메시지 입력 후 Enter" aria-label="채팅 입력">
+        <button id="chatSend">전송</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+(function(){
+'use strict';
+
+/* ============================================================
+   1. 상수 / 물리값  (논리 해상도 432x304, 원작 비율)
+   ============================================================ */
+const W=432, H=304;
+const GROUND=272, NET_X=216, NET_HW=2, NET_TOP=176;
+const PR=21, BR=9, STAND_Y=GROUND-PR-1;
+const PSPD=3.4, PG=0.30, JUMPV=8.5, BG=0.152, MAXBV=13.5;
+const WINPT=15;
+const L_MIN=PR+6, L_MAX=NET_X-PR-4, R_MIN=NET_X+PR+4, R_MAX=W-PR-6;
+
+const FUR='#a2938a', FURD='#83766e', CURL='#bfb2a8', WHT='#f7f3ef',
+      PINK='#dfa8a4', EYE='#cbe49c', BLK='#2b2420';
+
+/* ============================================================
+   2. 캔버스
+   ============================================================ */
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const off=document.createElement('canvas'); off.width=W; off.height=H;
+const g=off.getContext('2d');
+ctx.imageSmoothingEnabled=false;
+
+/* 배경 캐시 */
+const bg=document.createElement('canvas'); bg.width=W; bg.height=H;
+(function paintBG(){
+  const b=bg.getContext('2d');
+  b.fillStyle='#4fa3dd'; b.fillRect(0,0,W,196);
+  b.fillStyle='rgba(255,255,255,.13)';
+  for(let y=0;y<196;y+=2) for(let x=(y/2)%2;x<W;x+=2) b.fillRect(x,y,1,1);
+  const clouds=[[38,44,15],[96,28,10],[150,60,12],[248,36,13],[320,66,11],[386,30,12],[196,20,9]];
+  clouds.forEach(function(c){
+    b.fillStyle='#dfe6ea';
+    blob(b,c[0],c[1],c[2]);
+    b.fillStyle='#fff';
+    blob(b,c[0]-2,c[1]-2,c[2]*0.8);
+  });
+  function blob(c2,x,y,r){
+    c2.beginPath();
+    c2.arc(x,y,r,0,7); c2.arc(x+r*0.9,y+2,r*0.72,0,7);
+    c2.arc(x-r*0.9,y+3,r*0.6,0,7); c2.arc(x+r*0.2,y-r*0.5,r*0.65,0,7);
+    c2.fill();
+  }
+  /* 지평선 구름띠 */
+  b.fillStyle='#eef2f4';
+  for(let x=-10;x<W+20;x+=26) blob(b,x,200,16);
+  b.fillRect(0,204,W,10);
+  /* 초록 언덕 */
+  b.fillStyle='#4b9a46'; b.fillRect(0,212,W,32);
+  b.fillStyle='#5cb054';
+  for(let x=0;x<W;x+=34){ b.beginPath(); b.ellipse(x,214,22,9,0,0,7); b.fill(); }
+  b.fillStyle='#3d8038'; b.fillRect(0,238,W,6);
+  /* 코트 뒷벽 */
+  b.fillStyle='#9a3b32'; b.fillRect(0,244,W,GROUND-244);
+  b.fillStyle='#b4544a'; b.fillRect(0,248,W,3);
+  b.fillStyle='#7a2b24'; b.fillRect(0,GROUND-4,W,4);
+  b.fillStyle='#e2e6ea'; b.fillRect(0,244,W,2);
+  /* 바닥 */
+  b.fillStyle='#f0dd8c'; b.fillRect(0,GROUND,W,H-GROUND);
+  b.strokeStyle='#fff8d8'; b.lineWidth=1;
+  for(let x=-32;x<W+32;x+=16){
+    b.beginPath(); b.moveTo(x,GROUND); b.lineTo(x+32,H); b.stroke();
+    b.beginPath(); b.moveTo(x+32,GROUND); b.lineTo(x,H); b.stroke();
+  }
+  b.fillStyle='#d9c46f'; b.fillRect(0,GROUND,W,2);
+})();
+
+/* ============================================================
+   3. 꼬미 그리기
+   ============================================================ */
+function poseParams(p,tick){
+  const o={rot:0,hx:15,hy:-10,hrot:0,f1:[11,15],f2:[3,15],b1:[-12,15],b2:[-17,14],tail:0,squash:1};
+  switch(p.pose){
+    case 'walk':{
+      const s=Math.sin(tick*0.32);
+      o.f1=[11+s*5,15-Math.max(0,s)*4]; o.f2=[3-s*4,15-Math.max(0,-s)*4];
+      o.b1=[-12-s*4,15-Math.max(0,-s)*3]; o.b2=[-17+s*3,14];
+      o.tail=s*0.4; break;
+    }
+    case 'jump': o.rot=-0.20; o.hx=16;o.hy=-13; o.f1=[18,-1]; o.f2=[13,6]; o.b1=[-13,12]; o.b2=[-18,8]; o.tail=-0.5; break;
+    /* 두 번째·세 번째 사진: 누워서 앞발 쭉 → 토스 */
+    case 'toss': o.rot=0.05; o.hx=18;o.hy=-1; o.hrot=0.12; o.f1=[35,3]; o.f2=[22,9];
+                 o.b1=[-13,14]; o.b2=[-18,13]; o.tail=0.7; o.squash=0.92; break;
+    /* 첫 번째 사진: 배 보이며 앞발 쭉 → 스파이크 */
+    case 'spike': o.rot=-0.62; o.hx=12;o.hy=-16; o.hrot=-0.35; o.f1=[30,-17]; o.f2=[17,-6];
+                  o.b1=[-9,17]; o.b2=[-15,12]; o.tail=-0.9; break;
+    case 'dive': o.rot=0; o.hx=16;o.hy=-8; o.f1=[24,4]; o.f2=[16,10]; o.b1=[-14,12]; o.b2=[-19,7]; o.tail=0.3; break;
+    case 'down': o.rot=0.3; o.hx=14;o.hy=4; o.hrot=0.5; o.f1=[26,12]; o.f2=[16,13]; o.b1=[-13,15]; o.b2=[-18,14]; o.tail=1.1; break;
+  }
+  return o;
+}
+function limb(c,x1,y1,x2,y2,w,col,paw){
+  c.strokeStyle=col; c.lineWidth=w; c.lineCap='round';
+  c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke();
+  if(paw){ c.fillStyle=WHT; c.beginPath(); c.arc(x2,y2,w*0.62,0,7); c.fill(); }
+}
+function ear(c,x,y,tilt,flip){
+  c.save(); c.translate(x,y); c.rotate(tilt);
+  c.fillStyle=FUR; c.beginPath();
+  c.moveTo(-6*flip,3); c.lineTo(1*flip,-14); c.lineTo(7*flip,2); c.closePath(); c.fill();
+  c.fillStyle=PINK; c.beginPath();
+  c.moveTo(-3*flip,2); c.lineTo(1*flip,-9); c.lineTo(4*flip,1); c.closePath(); c.fill();
+  c.restore();
+}
+function drawKomi(c,p,tick){
+  const o=poseParams(p,tick);
+  c.save();
+  c.translate(Math.round(p.x),Math.round(p.y));
+  /* 그림자 */
+  c.fillStyle='rgba(0,0,0,.18)';
+  c.beginPath(); c.ellipse(0,STAND_Y-p.y+PR-1,20,4,0,0,7); c.fill();
+  c.scale(p.dir,1);
+  if(p.pose==='dive') c.rotate(p.spin);
+  c.rotate(o.rot);
+
+  /* 꼬리 */
+  c.save(); c.rotate(o.tail);
+  c.strokeStyle=FUR; c.lineWidth=4; c.lineCap='round';
+  c.beginPath(); c.moveTo(-19,2); c.quadraticCurveTo(-34,-2,-30,-14); c.stroke();
+  c.strokeStyle=CURL; c.lineWidth=4;
+  c.beginPath(); c.moveTo(-31,-11); c.lineTo(-29,-16); c.stroke();
+  c.restore();
+
+  /* 뒷다리 */
+  limb(c,-10,6,o.b2[0],o.b2[1],7,FURD,true);
+  limb(c,-8,6,o.b1[0],o.b1[1],8,FUR,true);
+  /* 뒤쪽 앞발 */
+  limb(c,8,2,o.f2[0],o.f2[1],6,FURD,true);
+
+  /* 몸통 */
+  const rx=21,ry=14*o.squash;
+  c.fillStyle=FUR; c.beginPath(); c.ellipse(0,0,rx,ry,0,0,7); c.fill();
+  c.fillStyle=WHT; c.beginPath(); c.ellipse(3,ry*0.42,rx*0.68,ry*0.52,0,0,7); c.fill();
+  /* 곱슬털 */
+  c.strokeStyle=CURL; c.lineWidth=1.4;
+  for(let i=0;i<10;i++){
+    const a=-Math.PI*0.94+i*(Math.PI*0.88/9);
+    const px=Math.cos(a)*rx*0.78, py=Math.sin(a)*ry*0.78;
+    c.beginPath(); c.arc(px,py,2.6,a-1.9,a+1.1); c.stroke();
+  }
+  c.strokeStyle=FURD; c.lineWidth=1.2;
+  for(let i=0;i<6;i++){
+    const px=-14+i*5.4;
+    c.beginPath(); c.arc(px,-2+((i%2)?2:0),2.2,0.6,3.2); c.stroke();
   }
 
-  addPlayer(ws, side, nick) {
-    this.players[side] = { ws, nick, input: 0 };
-    return Object.keys(this.players).length === 2;
+  /* 앞발 (강조되는 쪽) */
+  limb(c,10,-1,o.f1[0],o.f1[1],7,FUR,true);
+
+  /* 머리 */
+  c.save(); c.translate(o.hx,o.hy); c.rotate(o.hrot);
+  ear(c,-3,-6,-0.35,-1); ear(c,6,-7,0.30,1);
+  c.fillStyle=FUR; c.beginPath(); c.arc(0,0,10.5,0,7); c.fill();
+  c.fillStyle=WHT; c.beginPath(); c.ellipse(4,4.5,7,5.5,0,0,7); c.fill();
+  c.beginPath(); c.ellipse(-1,-4,5.5,3.6,0,0,7); c.fill();
+  /* 눈 */
+  const blink=(Math.floor(tick/70)%17===0);
+  if(p.pose==='down'||blink){
+    c.strokeStyle=BLK; c.lineWidth=1.4;
+    c.beginPath(); c.moveTo(1,-1); c.lineTo(6,-1); c.stroke();
+    c.beginPath(); c.moveTo(-8,0); c.lineTo(-4,0); c.stroke();
+  }else{
+    c.fillStyle=EYE; c.beginPath(); c.arc(4,-1,3.3,0,7); c.fill();
+    c.beginPath(); c.arc(-6,0,2.6,0,7); c.fill();
+    c.fillStyle=BLK; c.beginPath(); c.arc(5,-1,1.5,0,7); c.fill();
+    c.beginPath(); c.arc(-6.4,0,1.2,0,7); c.fill();
+    c.fillStyle='#fff'; c.fillRect(3,-3,1,1);
   }
+  /* 코·수염 */
+  c.fillStyle=PINK; c.beginPath();
+  c.moveTo(8,3); c.lineTo(11,4.5); c.lineTo(8,6); c.closePath(); c.fill();
+  c.strokeStyle='rgba(255,255,255,.85)'; c.lineWidth=0.8;
+  [[-1,1],[0,3],[1,5]].forEach(function(d){
+    c.beginPath(); c.moveTo(7,3.5+d[1]*0.8); c.lineTo(19,1+d[1]*1.5); c.stroke();
+  });
+  c.restore();
+  c.restore();
+}
 
-  broadcast(msg) {
-    Object.values(this.players).forEach(p => {
-      if (p.ws.readyState === WebSocket.OPEN) {
-        p.ws.send(JSON.stringify(msg));
-      }
-    });
+/* ============================================================
+   4. 공 그리기
+   ============================================================ */
+function drawBall(c,b){
+  if(b.trail.length){
+    for(let i=0;i<b.trail.length;i++){
+      const t=b.trail[i], a=(i+1)/b.trail.length*0.4;
+      c.fillStyle='rgba(255,255,255,'+a.toFixed(2)+')';
+      c.beginPath(); c.arc(t[0],t[1],BR*(0.4+a),0,7); c.fill();
+    }
   }
-
-  broadcastExcept(ws, msg) {
-    Object.values(this.players).forEach(p => {
-      if (p.ws !== ws && p.ws.readyState === WebSocket.OPEN) {
-        p.ws.send(JSON.stringify(msg));
-      }
-    });
+  c.save(); c.translate(b.x,b.y); c.rotate(b.spin);
+  const cols=['rgba(214,32,42,.75)','rgba(46,86,200,.7)','rgba(150,54,180,.65)'];
+  for(let i=0;i<3;i++){
+    const a=i*2.094;
+    c.fillStyle=cols[i];
+    c.beginPath(); c.arc(Math.cos(a)*3.2,Math.sin(a)*3.2,BR*0.85,0,7); c.fill();
   }
+  c.strokeStyle='rgba(30,20,20,.8)'; c.lineWidth=1.4;
+  c.beginPath(); c.arc(0,0,BR,0,7); c.stroke();
+  c.fillStyle='#f7f3ef'; c.beginPath(); c.arc(0,0,3,0,7); c.fill();
+  c.strokeStyle='#2b2420'; c.lineWidth=1; c.beginPath(); c.arc(0,0,3,0,7); c.stroke();
+  c.restore();
+}
 
-  step() {
-    this.tick++;
-    if (this.state === 'waiting' || Object.keys(this.players).length < 2) return;
+/* ============================================================
+   5. 상태
+   ============================================================ */
+const P_STAND=0;
+function mkPlayer(side){
+  return {side:side, x:side?324:108, y:STAND_Y, vx:0, vy:0, dir:side?-1:1,
+          onGround:true, power:0, cool:0, spin:0, diveVx:0,
+          pose:'stand', poseT:0, hitCool:0};
+}
+const G={
+  mode:'menu',            // menu | ai | local | online
+  state:'menu',           // menu | serve | play | point | over
+  p:[mkPlayer(0),mkPlayer(1)],
+  ball:{x:108,y:40,vx:0,vy:0,spin:0,power:0,trail:[]},
+  score:[0,0], serveT:70, pointT:0, winner:-1, server:0,
+  frame:0, tick:0, mySide:0, diff:1, muted:false
+};
+const DIFFS=['쉬움','보통','어려움'];
 
-    const msg = {
-      t: 's',
-      p0: [this.p[0].x, this.p[0].y, this.p[0].vx, this.p[0].vy, this.p[0].onGround ? 1 : 0, this.p[0].pose, this.p[0].poseT, this.p[0].spin],
-      p1: [this.p[1].x, this.p[1].y, this.p[1].vx, this.p[1].vy, this.p[1].onGround ? 1 : 0, this.p[1].pose, this.p[1].poseT, this.p[1].spin],
-      b: [this.ball.x, this.ball.y, this.ball.vx, this.ball.vy, this.ball.power],
-      sc: this.score,
-      st: this.state,
-      sv: this.serveT,
-      sr: this.server,
-      wn: this.winner,
-      i0: Object.values(this.players)[0]?.input || 0
-    };
-    this.broadcast(msg);
+function resetRally(server){
+  G.server=server;
+  G.p[0]=mkPlayer(0); G.p[1]=mkPlayer(1);
+  const b=G.ball;
+  b.x=server?324:108; b.y=42; b.vx=0; b.vy=0; b.power=0; b.trail.length=0;
+  G.serveT=70; G.state='serve';
+}
+function newMatch(){ G.score=[0,0]; G.winner=-1; resetRally(0); }
+
+/* ============================================================
+   6. 입력
+   ============================================================ */
+const keys={};
+const held={left:false,right:false,up:false,pow:false};   // 터치패드
+addEventListener('keydown',function(e){
+  if(e.target && e.target.tagName==='INPUT') return;
+  if([' ','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Enter'].indexOf(e.key)>=0) e.preventDefault();
+  keys[e.key.toLowerCase()]=true;
+});
+addEventListener('keyup',function(e){ keys[e.key.toLowerCase()]=false; });
+addEventListener('blur',function(){ for(const k in keys) keys[k]=false; });
+
+function bits(l,r,u,p){ return (l?1:0)|(r?2:0)|(u?4:0)|(p?8:0); }
+function inputWASD(){ return bits(keys['a'],keys['d'],keys['w'],keys['f']); }
+function inputArrows(){ return bits(keys['arrowleft'],keys['arrowright'],keys['arrowup'],keys['enter']||keys[' ']); }
+function inputTouch(){ return bits(held.left,held.right,held.up,held.pow); }
+function myInput(){ return inputWASD()|inputArrows()|inputTouch(); }
+
+/* 터치패드 */
+const pad=document.getElementById('pad');
+if(matchMedia('(hover:none)').matches) document.body.classList.add('touch');
+pad.querySelectorAll('button').forEach(function(b){
+  const k=b.dataset.k;
+  const on=function(e){ e.preventDefault(); held[k]=true; };
+  const off=function(e){ e.preventDefault(); held[k]=false; };
+  b.addEventListener('pointerdown',on); b.addEventListener('pointerup',off);
+  b.addEventListener('pointerleave',off); b.addEventListener('pointercancel',off);
+});
+
+/* ============================================================
+   7. 물리
+   ============================================================ */
+function stepPlayer(p,inp){
+  const diving=(p.pose==='dive'&&p.poseT>0);
+  if(diving) p.vx=p.diveVx;
+  else p.vx=(((inp&2)?1:0)-((inp&1)?1:0))*PSPD;
+
+  if((inp&4)&&p.onGround&&G.state!=='point'){
+    p.vy=-JUMPV; p.onGround=false; p.pose='jump'; p.poseT=0;
+  }
+  if((inp&8)&&p.cool<=0&&G.state!=='point'){
+    p.cool=26; p.power=15;
+    if(p.onGround){
+      p.pose='dive'; p.poseT=20; p.spin=0;
+      p.diveVx=((inp&1)?-1:((inp&2)?1:p.dir))*6.4;
+      p.vy=-2.4; p.onGround=false;
+    } else { p.pose='spike'; p.poseT=22; }
+  }
+  if(p.power>0) p.power--;
+  if(p.cool>0) p.cool--;
+  if(p.hitCool>0) p.hitCool--;
+
+  p.x+=p.vx;
+  if(!p.onGround){
+    p.vy+=PG; p.y+=p.vy;
+    if(p.y>=STAND_Y){
+      p.y=STAND_Y; p.vy=0; p.onGround=true;
+      if(p.pose==='jump'||p.pose==='spike'){ p.pose='stand'; p.poseT=0; }
+    }
+  }
+  if(p.pose==='dive') p.spin+=0.34*p.dir;
+  const mn=p.side?R_MIN:L_MIN, mx=p.side?R_MAX:L_MAX;
+  if(p.x<mn){p.x=mn; if(diving)p.diveVx=0;}
+  if(p.x>mx){p.x=mx; if(diving)p.diveVx=0;}
+
+  if(p.poseT>0){ p.poseT--; if(p.poseT===0){ p.spin=0; p.pose=p.onGround?(Math.abs(p.vx)>0.2?'walk':'stand'):'jump'; } }
+  else if(p.onGround&&p.pose!=='down') p.pose=Math.abs(p.vx)>0.2?'walk':'stand';
+}
+
+function hitBall(p){
+  const b=G.ball;
+  let dx=b.x-p.x, dy=b.y-p.y, d=Math.hypot(dx,dy)||0.01;
+  const nx=dx/d, ny=dy/d;
+  b.x=p.x+nx*(PR+BR+0.6); b.y=p.y+ny*(PR+BR+0.6);
+  const toOpp=p.side===0?1:-1;
+  p.hitCool=6;
+  if(p.power>0&&p.pose==='spike'){
+    b.vx=toOpp*10.4+nx*2.0; b.vy=2.4+Math.max(0,ny*2.4);
+    b.power=26; p.poseT=Math.max(p.poseT,18); beep(180,0.13,'sawtooth',0.08);
+  }else if(p.power>0){
+    b.vx=toOpp*8.6+nx*1.2; b.vy=-5.2+Math.min(0,ny*1.5);
+    b.power=22; p.poseT=Math.max(p.poseT,16); beep(240,0.11,'square',0.07);
+  }else{
+    const sp=7.2;
+    b.vx=nx*sp+p.vx*0.5+toOpp*2.4;
+    b.vy=ny*sp; if(b.vy>-5.0) b.vy=-5.0-Math.random()*0.8;
+    b.power=0; p.pose='toss'; p.poseT=18; beep(520,0.06,'triangle',0.05);
   }
 }
 
-wss.on('connection', (ws) => {
-  let room = null;
-  let mySide = null;
-  let nick = '꼬미집사';
-
-  ws.on('message', (data) => {
-    try {
-      const msg = JSON.parse(data);
-
-      if (msg.t === 'create') {
-        const code = msg.code || Math.random().toString(36).slice(2, 6).toUpperCase();
-        if (!rooms[code]) rooms[code] = new GameRoom(code);
-        room = rooms[code];
-        mySide = 0;
-        nick = (msg.n || '꼬미집사').slice(0, 10);
-
-        if (room.addPlayer(ws, 0, nick)) {
-          room.state = 'play';
-          room.broadcast({ t: 'start', code });
-        } else {
-          ws.send(JSON.stringify({ t: 'wait', code }));
-        }
-      } 
-      else if (msg.t === 'join') {
-        const code = msg.code;
-        if (!rooms[code]) {
-          ws.send(JSON.stringify({ t: 'err', m: '방을 찾을 수 없어요.' }));
-          return;
-        }
-        room = rooms[code];
-        mySide = 1;
-        nick = (msg.n || '꼬미집사').slice(0, 10);
-
-        if (room.addPlayer(ws, 1, nick)) {
-          room.state = 'play';
-          room.broadcast({ t: 'start', code });
-        } else {
-          ws.send(JSON.stringify({ t: 'err', m: '이미 2명이 참가했어요.' }));
-        }
-      } 
-      else if (msg.t === 'i' && room) {
-        if (room.players[mySide]) room.players[mySide].input = msg.k;
-      } 
-      else if (msg.t === 'c' && room) {
-        room.broadcastExcept(ws, { t: 'c', from: nick, m: msg.m });
-      }
-    } catch (e) {
-      console.error('Message error:', e);
+function stepWorld(inp0,inp1){
+  G.tick++;
+  if(G.state==='point'){
+    G.pointT--;
+    if(G.pointT<=0){
+      if(G.score[0]>=WINPT||G.score[1]>=WINPT){
+        G.winner=G.score[0]>G.score[1]?0:1; G.state='over'; onGameOver();
+      } else resetRally(G.winner>=0?G.winner:G.server);
     }
-  });
+    return;
+  }
+  stepPlayer(G.p[0],inp0); stepPlayer(G.p[1],inp1);
 
-  ws.on('close', () => {
-    if (room) {
-      delete room.players[mySide];
-      if (Object.keys(room.players).length === 0) {
-        const code = Object.keys(rooms).find(k => rooms[k] === room);
-        if (code) delete rooms[code];
-      } else {
-        room.broadcast({ t: 'bye', m: '상대가 나갔어요.' });
-      }
+  const b=G.ball;
+  if(G.state==='serve'){
+    G.serveT--;
+    b.y=42+Math.sin(G.tick*0.09)*3;
+    if(G.serveT<=0){ G.state='play'; b.vy=1; }
+    return;
+  }
+
+  b.vy+=BG;
+  if(b.vx>MAXBV)b.vx=MAXBV; if(b.vx<-MAXBV)b.vx=-MAXBV;
+  if(b.vy>MAXBV)b.vy=MAXBV;
+  b.x+=b.vx; b.y+=b.vy;
+  b.spin+=b.vx*0.05;
+  if(b.power>0){ b.power--; b.trail.push([b.x,b.y]); if(b.trail.length>7)b.trail.shift(); }
+  else if(b.trail.length) b.trail.shift();
+
+  if(b.x<BR){ b.x=BR; b.vx=-b.vx*0.95; beep(300,0.04,'square',0.04); }
+  if(b.x>W-BR){ b.x=W-BR; b.vx=-b.vx*0.95; beep(300,0.04,'square',0.04); }
+  if(b.y<BR){ b.y=BR; b.vy=Math.abs(b.vy)*0.9; }
+
+  /* 네트 */
+  const dnx=b.x-NET_X, dny=b.y-NET_TOP, dn=Math.hypot(dnx,dny);
+  if(dn<BR+3){
+    const nx=dnx/(dn||1), ny=dny/(dn||1);
+    b.x=NET_X+nx*(BR+3.4); b.y=NET_TOP+ny*(BR+3.4);
+    const dot=b.vx*nx+b.vy*ny;
+    b.vx=(b.vx-2*dot*nx)*0.85; b.vy=(b.vy-2*dot*ny)*0.85;
+    beep(420,0.05,'square',0.05);
+  }else if(b.y>NET_TOP&&Math.abs(b.x-NET_X)<BR+NET_HW){
+    if(b.vx>0) b.x=NET_X-NET_HW-BR; else b.x=NET_X+NET_HW+BR;
+    b.vx=-b.vx*0.8; beep(360,0.05,'square',0.05);
+  }
+
+  /* 선수 충돌 */
+  for(let i=0;i<2;i++){
+    const p=G.p[i];
+    if(p.hitCool>0) continue;
+    if(Math.hypot(b.x-p.x,b.y-p.y)<PR+BR) hitBall(p);
+  }
+
+  /* 바닥 = 득점 */
+  if(b.y+BR>=GROUND){
+    b.y=GROUND-BR;
+    const lostSide=b.x<NET_X?0:1;
+    const win=1-lostSide;
+    G.score[win]++; G.winner=win;
+    G.p[lostSide].pose='down'; G.p[lostSide].poseT=200;
+    G.state='point'; G.pointT=70; b.trail.length=0; b.power=0;
+    beep(700,0.1,'square',0.07); setTimeout(function(){beep(940,0.14,'square',0.07);},110);
+  }
+}
+
+/* ============================================================
+   8. AI
+   ============================================================ */
+const ai={target:324,timer:0,spike:false,spikeX:324,atk:false,atkX:324};
+/* 공이 지정 높이까지 내려오는 시점과 x를 예측 */
+function predictAt(ty){
+  const b=G.ball; let x=b.x,y=b.y,vx=b.vx,vy=b.vy;
+  for(let i=1;i<=220;i++){
+    vy+=BG; x+=vx; y+=vy;
+    if(x<BR){x=BR;vx=-vx*0.95;} if(x>W-BR){x=W-BR;vx=-vx*0.95;}
+    if(y>=GROUND-BR) return {t:i,x:x,land:true};
+    if(vy>0&&y>=ty) return {t:i,x:x,land:false};
+  }
+  return {t:999,x:x,land:false};
+}
+function aiInput(){
+  const p=G.p[1], b=G.ball;
+  const rate=[10,5,3][G.diff], err=[24,11,4][G.diff], sprob=[0.15,0.4,0.8][G.diff];
+  const mine=(b.x>NET_X-12)||b.vx>0.2;
+  if(--ai.timer<=0){
+    ai.timer=rate;
+    if(G.state==='serve') ai.target=(G.server===1)?b.x+8:324;
+    else if(mine){
+      const r=predictAt(STAND_Y-10);
+      ai.target=r.x+9+(Math.random()*2-1)*err;
+    } else ai.target=320+(Math.random()*2-1)*err*0.5;
+    ai.target=Math.max(R_MIN,Math.min(R_MAX,ai.target));
+    if(mine&&G.state==='play'&&G.diff>0&&p.onGround){
+      const hi=predictAt(146);
+      ai.spike=(!hi.land&&hi.t>=23&&hi.t<=31&&hi.x>NET_X+6&&
+                Math.abs(hi.x-p.x)<52&&Math.random()<sprob);
+      ai.spikeX=Math.max(R_MIN,Math.min(R_MAX,hi.x+2));
     }
-  });
+  }
+  let l=false,r=false,u=false,pw=false;
+  const tx=(!p.onGround&&ai.atk)?ai.atkX:ai.target;
+  if(p.x-tx>4) l=true; else if(tx-p.x>4) r=true;
+  if(p.onGround){
+    ai.atk=false;
+    if(ai.spike){ u=true; ai.atk=true; ai.atkX=ai.spikeX; ai.spike=false; }
+  }else if(ai.atk){
+    if(Math.hypot(b.x-p.x,b.y-p.y)<PR+BR+11&&b.y<NET_TOP-8) pw=true;
+  }
+  return bits(l,r,u,pw);
+}
 
-  ws.on('error', (err) => console.error('WebSocket error:', err));
+/* ============================================================
+   9. 렌더
+   ============================================================ */
+function drawScore(c){
+  c.font='bold 30px ui-monospace, Menlo, Consolas, monospace';
+  c.textBaseline='top';
+  const put=function(txt,x){
+    c.lineWidth=4; c.strokeStyle='#fff'; c.strokeText(txt,x,10);
+    c.fillStyle='#d8202a'; c.fillText(txt,x,10);
+  };
+  put(String(G.score[0]),22);
+  const t=String(G.score[1]); put(t,W-22-c.measureText(t).width);
+}
+function drawNet(c){
+  c.fillStyle='#7d8894'; c.fillRect(NET_X-NET_HW,NET_TOP,NET_HW*2,GROUND-NET_TOP);
+  c.fillStyle='#c9d2da'; c.fillRect(NET_X-NET_HW,NET_TOP,1,GROUND-NET_TOP);
+  c.fillStyle='#4a5560'; c.fillRect(NET_X-NET_HW-1,GROUND-4,NET_HW*2+2,4);
+  c.fillStyle='#e8eef2'; c.beginPath(); c.arc(NET_X,NET_TOP-2,3,0,7); c.fill();
+  c.strokeStyle='#5b6672'; c.lineWidth=1; c.beginPath(); c.arc(NET_X,NET_TOP-2,3,0,7); c.stroke();
+}
+function render(){
+  g.drawImage(bg,0,0);
+  drawNet(g);
+  drawKomi(g,G.p[0],G.tick);
+  drawKomi(g,G.p[1],G.tick+37);
+  drawBall(g,G.ball);
+  drawScore(g);
+  if(G.state==='serve'&&G.mode!=='menu'){
+    g.font='bold 11px ui-monospace, monospace'; g.textBaseline='top';
+    const s=String(Math.ceil(G.serveT/20));
+    g.fillStyle='rgba(255,255,255,.85)';
+    g.fillText(s,W/2-3,52);
+  }
+  ctx.drawImage(off,0,0,W,H,0,0,cv.width,cv.height);
+}
+
+/* ============================================================
+   10. 사운드
+   ============================================================ */
+let AC=null;
+function beep(f,d,type,v){
+  if(G.muted) return;
+  try{
+    AC=AC||new (window.AudioContext||window.webkitAudioContext)();
+    const o=AC.createOscillator(), gn=AC.createGain();
+    o.type=type||'square'; o.frequency.value=f;
+    gn.gain.value=v||0.05; o.connect(gn); gn.connect(AC.destination);
+    o.start(); gn.gain.exponentialRampToValueAtTime(0.0001,AC.currentTime+d);
+    o.stop(AC.currentTime+d);
+  }catch(e){}
+}
+
+/* ============================================================
+   11. 네트워크 (PeerJS = WebRTC P2P)
+   ============================================================ */
+const net={peer:null,conn:null,role:'',code:'',nick:'꼬미집사',oppNick:'상대',
+           lastIn:0,ping:0,tries:0,connected:false};
+const ALPH='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function randCode(){ let s=''; for(let i=0;i<4;i++) s+=ALPH[Math.floor(Math.random()*ALPH.length)]; return s; }
+function peerReady(){ return typeof window.Peer==='function'; }
+
+const SERVER_URL = localStorage.getItem('serverUrl') || 'https://kkomi-volleyball-server.onrender.com';
+let ws = null;
+
+function hostRoom(){
+  cleanNet();
+  const code=randCode();
+  net.role='host'; net.code=code;
+  show('scrWait');
+  document.getElementById('waitTitle').textContent='상대를 기다립니다';
+  document.getElementById('roomCode').textContent=code;
+  document.getElementById('waitText').textContent='이 코드를 상대에게 알려주세요.';
+  
+  ws = new WebSocket(SERVER_URL.replace('https','wss').replace('http','ws'));
+  ws.onopen = function(){
+    ws.send(JSON.stringify({t:'create', code:code, n:net.nick}));
+    sys('방을 만들었어요. 코드 '+code);
+  };
+  ws.onmessage = function(e){
+    try{ onData(JSON.parse(e.data)); }catch(err){}
+  };
+  ws.onerror = function(){ netFail({type:'connection'}); };
+  ws.onclose = function(){ dropNet(); };
+  net.connected = false;
+}
+
+function joinRoom(code){
+  cleanNet();
+  net.role='guest'; net.code=code;
+  show('scrWait');
+  document.getElementById('waitTitle').textContent='연결 중…';
+  document.getElementById('roomCode').textContent=code;
+  document.getElementById('waitText').textContent='방장에게 연결하고 있어요.';
+  
+  ws = new WebSocket(SERVER_URL.replace('https','wss').replace('http','ws'));
+  ws.onopen = function(){
+    ws.send(JSON.stringify({t:'join', code:code, n:net.nick}));
+  };
+  ws.onmessage = function(e){
+    try{ onData(JSON.parse(e.data)); }catch(err){}
+  };
+  ws.onerror = function(){ netFail({type:'connection'}); };
+  ws.onclose = function(){ dropNet(); };
+  net.connected = false;
+}
+function netFail(e){
+  const m=(e&&e.type)||'';
+  sys(m==='peer-unavailable' ? '그 코드의 방을 찾을 수 없어요. 코드를 다시 확인해 주세요.'
+                             : '연결에 실패했어요. 잠시 후 다시 시도해 주세요.');
+  cleanNet(); show('scrOnline');
+}
+function cleanNet(){
+  if(ws){ try{ws.close();}catch(e){} ws=null; }
+  net.connected=false;
+}
+function dropNet(){
+  cleanNet();
+  document.getElementById('chatState').textContent='오프라인';
+  if(G.mode==='online'){ G.mode='menu'; G.state='menu'; tag('대기 중'); show('scrMenu'); }
+}
+function send(o){ 
+  if(ws&&ws.readyState===WebSocket.OPEN){
+    try{ws.send(JSON.stringify(o));}catch(e){}
+  }
+}
+
+function packP(p){ return [Math.round(p.x*10)/10,Math.round(p.y*10)/10,p.vx,p.vy,p.onGround?1:0,p.pose,p.poseT,Math.round(p.spin*100)/100]; }
+function applyP(p,a,soft){
+  if(soft&&Math.hypot(p.x-a[0],p.y-a[1])<12){ p.x+=(a[0]-p.x)*0.3; p.y+=(a[1]-p.y)*0.3; }
+  else { p.x=a[0]; p.y=a[1]; }
+  p.vx=a[2]; p.vy=a[3]; p.onGround=!!a[4];
+  if(!soft){ p.pose=a[5]; p.poseT=a[6]; p.spin=a[7]; }
+}
+function onData(d){
+  if(!d||!d.t) return;
+  if(d.t==='start'){
+    net.connected=true;
+    G.mode='online'; G.mySide=(net.role==='host')?0:1;
+    if(net.role==='host'){ newMatch(); }
+    hideAll();
+    tag('온라인 대전 · '+(G.mySide===0?'왼쪽':'오른쪽')+' 꼬미');
+    document.getElementById('chatState').textContent='연결됨';
+    sys('연결됐어요! 채팅도 사용할 수 있어요.');
+    beep(660,0.09,'triangle',0.06);
+    return;
+  }
+  if(d.t==='err'){ sys(d.m||'오류가 발생했어요.'); cleanNet(); show('scrOnline'); return; }
+  if(d.t==='i'){ net.lastIn=d.k|0; return; }
+  if(d.t==='s'){
+    applyP(G.p[0],d.p0,G.mySide===0);
+    applyP(G.p[1],d.p1,G.mySide===1);
+    const b=G.ball;
+    b.x=d.b[0]; b.y=d.b[1]; b.vx=d.b[2]; b.vy=d.b[3]; b.power=d.b[4];
+    G.score=d.sc; G.serveT=d.sv; G.server=d.sr;
+    G.state=d.st; G.winner=d.wn;
+    if(d.st==='over'){
+      if(document.getElementById('scrOver').classList.contains('hide')) onGameOver();
+    }else if(!document.getElementById('scrOver').classList.contains('hide')) hideAll();
+    net.lastIn=d.i0|0;
+    return;
+  }
+  if(d.t==='c'){ addMsg(d.from||'상대',d.m,false); return; }
+  if(d.t==='hi'){ net.oppNick=(d.n||'상대').slice(0,10); sys(net.oppNick+' 님이 입장했어요.'); return; }
+  if(d.t==='bye'){ sys(d.m||'상대가 나갔어요.'); dropNet(); return; }
+  if(d.t==='rs'){ if(net.role==='host'){ newMatch(); hideAll(); } return; }
+  if(d.t==='p'){ send({t:'q',ts:d.ts}); return; }
+  if(d.t==='q'){ net.ping=Date.now()-d.ts; document.getElementById('pingTag').textContent='지연 '+net.ping+'ms'; return; }
+}
+
+/* ============================================================
+   12. 루프
+   ============================================================ */
+let acc=0,last=performance.now();
+const STEP=1000/60;
+function loop(now){
+  acc+=Math.min(now-last,200); last=now;
+  while(acc>=STEP){
+    acc-=STEP; G.frame++;
+    if(G.mode==='ai'){ if(G.state!=='over') stepWorld(myInput(),aiInput()); else G.tick++; }
+    else if(G.mode==='local'){ if(G.state!=='over') stepWorld(inputWASD()|(held.left||held.right||held.up||held.pow?inputTouch():0),inputArrows()); else G.tick++; }
+    else if(G.mode==='online'){
+      const mine=myInput();
+      if(net.role==='host'){
+        if(G.state!=='over') stepWorld(mine,net.lastIn); else G.tick++;
+        if(G.frame%2===0) send({t:'s',p0:packP(G.p[0]),p1:packP(G.p[1]),
+          b:[Math.round(G.ball.x*10)/10,Math.round(G.ball.y*10)/10,G.ball.vx,G.ball.vy,G.ball.power],
+          sc:G.score,st:G.state,sv:G.serveT,sr:G.server,wn:G.winner,i0:mine});
+      }else{
+        send({t:'i',k:mine});
+        if(G.state!=='over') stepWorld(net.lastIn,mine); else G.tick++;
+      }
+      if(G.frame%120===0) send({t:'p',ts:Date.now()});
+    }
+    else G.tick++;
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ============================================================
+   13. UI
+   ============================================================ */
+const screens=['scrMenu','scrOnline','scrWait','scrOver'];
+function hideAll(){ screens.forEach(function(id){ document.getElementById(id).classList.add('hide'); }); }
+function show(id){ hideAll(); document.getElementById(id).classList.remove('hide'); }
+function tag(t){ document.getElementById('modeTag').textContent=t; }
+
+function onGameOver(){
+  const meWin=(G.mode==='online')?(G.winner===G.mySide):(G.winner===0);
+  document.getElementById('overTitle').textContent=meWin?'승리!':'패배…';
+  document.getElementById('overText').textContent=G.score[0]+' : '+G.score[1]+
+    (G.mode==='online'?(meWin?' — 상대에게 자랑해도 됩니다.':' — 한 판 더?'):'');
+  show('scrOver');
+  beep(meWin?880:220,0.2,'triangle',0.07);
+}
+
+document.querySelectorAll('[data-go]').forEach(function(b){
+  b.addEventListener('click',function(){
+    const go=b.dataset.go;
+    if(go==='menu'){ show('scrMenu'); tag('대기 중'); G.mode='menu'; G.state='menu'; return; }
+    if(go==='online'){ show('scrOnline'); return; }
+    G.mode=go; newMatch(); hideAll();
+    tag(go==='ai'?('컴퓨터와 · '+DIFFS[G.diff]):'한 키보드 2인');
+  });
+});
+document.getElementById('diffBtn').addEventListener('click',function(){
+  G.diff=(G.diff+1)%3; this.textContent='난이도: '+DIFFS[G.diff];
+});
+document.getElementById('muteBtn').addEventListener('click',function(){
+  G.muted=!G.muted; this.textContent=G.muted?'소리 꺼짐':'소리 켜짐';
+});
+document.getElementById('btnMenu').addEventListener('click',function(){
+  if(G.mode==='online') dropNet();
+  G.mode='menu'; G.state='menu'; tag('대기 중'); show('scrMenu');
+});
+document.getElementById('btnHost').addEventListener('click',function(){
+  net.nick=(document.getElementById('nick').value||'꼬미집사').slice(0,10); hostRoom();
+});
+document.getElementById('btnJoin').addEventListener('click',function(){
+  net.nick=(document.getElementById('nick').value||'꼬미집사').slice(0,10);
+  const c=(document.getElementById('joinCode').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(c.length!==4){ sys('코드 4자리를 입력해 주세요.'); return; }
+  joinRoom(c);
+});
+document.getElementById('joinCode').addEventListener('keydown',function(e){
+  if(e.key==='Enter') document.getElementById('btnJoin').click();
+});
+document.getElementById('btnCopy').addEventListener('click',function(){
+  const t=document.getElementById('roomCode').textContent;
+  if(navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ sys('코드를 복사했어요: '+t); },function(){});
+  else sys('코드: '+t);
+});
+document.getElementById('btnCancel').addEventListener('click',function(){ cleanNet(); show('scrOnline'); });
+document.getElementById('btnAgain').addEventListener('click',function(){
+  if(G.mode==='online'){
+    if(net.role==='host'){ newMatch(); hideAll(); }
+    else { send({t:'rs'}); document.getElementById('overText').textContent='방장에게 다시하기를 요청했어요.'; }
+  } else { newMatch(); hideAll(); }
+});
+document.getElementById('btnQuit').addEventListener('click',function(){
+  if(G.mode==='online') dropNet();
+  G.mode='menu'; G.state='menu'; tag('대기 중'); show('scrMenu');
 });
 
-setInterval(() => {
-  Object.values(rooms).forEach(room => room.step());
-}, 1000 / 60);
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`🎮 꼬미배구 서버 시작: http://localhost:${PORT}`);
+/* 채팅 */
+const log=document.getElementById('log'), chatIn=document.getElementById('chatIn'), bubbles=document.getElementById('bubbles');
+function addMsg(who,text,mine){
+  const el=document.createElement('div');
+  el.className='msg'+(mine?' me':'');
+  const w=document.createElement('span'); w.className='who'; w.textContent=who;
+  el.appendChild(w); el.appendChild(document.createTextNode(text));
+  log.appendChild(el); log.scrollTop=log.scrollHeight;
+  const bu=document.createElement('div'); bu.className='bub'; bu.textContent=who+': '+text;
+  bubbles.appendChild(bu);
+  setTimeout(function(){ bu.remove(); },7000);
+  while(bubbles.children.length>3) bubbles.firstChild.remove();
+  while(log.children.length>120) log.firstChild.remove();
+}
+function sys(text){
+  const el=document.createElement('div'); el.className='msg sys'; el.textContent=text;
+  log.appendChild(el); log.scrollTop=log.scrollHeight;
+}
+function sendChat(){
+  const v=chatIn.value.trim(); if(!v) return;
+  chatIn.value='';
+  addMsg(net.nick,v,true);
+  if(net.connected) send({t:'c',m:v});
+  else sys('아직 상대와 연결되지 않아 나만 볼 수 있어요.');
+}
+chatIn.addEventListener('keydown',function(e){
+  if(e.key==='Enter'){ e.preventDefault(); sendChat(); }
+  if(e.key==='Escape') chatIn.blur();
 });
+document.getElementById('chatSend').addEventListener('click',sendChat);
+
+sys('꼬미배구 온라인에 오신 걸 환영해요. 온라인 대전을 시작하면 상대와 대화할 수 있어요.');
+tag('대기 중');
+})();
+</script>
+</body>
+</html>
