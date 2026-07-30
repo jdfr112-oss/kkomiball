@@ -51,15 +51,15 @@ class GameRoom {
     });
   }
 
-  step() {
-    this.tick++;
-    if (this.state === 'waiting' || Object.keys(this.players).length < 2) return;
+step() {
+  this.tick++;
+  if (this.state === 'waiting' || Object.keys(this.players).length < 2) return;
 
-    const msg = {
-      t: 's',
-      p0: this.p[0],
-      p1: this.p[1],
-      b: this.ball,
+  const msg = {
+    t: 's',
+    p0: [this.p[0].x, this.p[0].y, this.p[0].vx, this.p[0].vy, this.p[0].onGround ? 1 : 0, this.p[0].pose, this.p[0].poseT, this.p[0].spin],
+    p1: [this.p[1].x, this.p[1].y, this.p[1].vx, this.p[1].vy, this.p[1].onGround ? 1 : 0, this.p[1].pose, this.p[1].poseT, this.p[1].spin],
+    b: [this.ball.x, this.ball.y, this.ball.vx, this.ball.vy, this.ball.power],
       sc: this.score,
       st: this.state,
       sv: this.serveT,
